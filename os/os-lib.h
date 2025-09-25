@@ -14,22 +14,22 @@ namespace OS {
 
 // ---------------------------------------s
 
-inline bool terminal_is_backspace (const char c)
+inline bool terminal_is_backspace (const char c) noexcept
 {
 	return (c == 8);
 }
 
-inline bool terminal_is_alpha (const char c)
+inline bool terminal_is_alpha (const char c) noexcept
 {
 	return (c >= 'a') && (c <= 'z');
 }
 
-inline bool terminal_is_num (const char c)
+inline bool terminal_is_num (const char c) noexcept
 {
 	return (c >= '0') && (c <= '9');
 }
 
-inline bool terminal_is_return (const char c)
+inline bool terminal_is_return (const char c) noexcept
 {
 	return (c == '\n');
 }
