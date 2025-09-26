@@ -184,7 +184,7 @@ uint16_t Terminal::read (const uint16_t port)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Terminal read invalid port ", port);
+			mylib_throw_assert_msg("Terminal read invalid port ", port);
 	}
 
 	return r;
@@ -208,7 +208,7 @@ void Terminal::write (const uint16_t port, const uint16_t value)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Terminal write invalid port ", port);
+			mylib_throw_assert_msg("Terminal write invalid port ", port);
 	}
 }
 

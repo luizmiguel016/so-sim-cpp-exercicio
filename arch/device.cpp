@@ -17,7 +17,7 @@ const char* enum_class_to_str (const InterruptCode code)
 		"CpuException"
 		});
 
-	mylib_assert_exception_msg(std::to_underlying(code) < strs.size(), "invalid interrupt code ", std::to_underlying(code))
+	mylib_assert_msg(std::to_underlying(code) < strs.size(), "invalid interrupt code ", std::to_underlying(code))
 
 	return strs[ std::to_underlying(code) ];
 }

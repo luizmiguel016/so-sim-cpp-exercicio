@@ -53,7 +53,7 @@ uint16_t Timer::read (const uint16_t port)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Timer read invalid port ", port);
+			mylib_throw_assert_msg("Timer read invalid port ", port);
 	}
 
 	return r;
@@ -71,7 +71,7 @@ void Timer::write (const uint16_t port, const uint16_t value)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Timer write invalid port ", port);
+			mylib_throw_assert_msg("Timer write invalid port ", port);
 	}
 }
 

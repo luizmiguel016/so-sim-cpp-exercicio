@@ -31,13 +31,13 @@ public:
 
 	inline uint16_t operator[] (const uint32_t paddr) const
 	{
-		mylib_assert_exception(paddr < this->data.size())
+		mylib_assert(paddr < this->data.size())
 		return this->data[paddr];
 	}
 
 	inline uint16_t& operator[] (const uint32_t paddr)
 	{
-		mylib_assert_exception(paddr < this->data.size())
+		mylib_assert(paddr < this->data.size())
 		return this->data[paddr];
 	}
 

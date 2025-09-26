@@ -81,7 +81,7 @@ uint16_t Disk::read (const uint16_t port)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Disk read invalid port ", port);
+			mylib_throw_assert_msg("Disk read invalid port ", port);
 	}
 
 	return r;
@@ -117,7 +117,7 @@ void Disk::write (const uint16_t port, const uint16_t value)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Disk read invalid port ", port);
+			mylib_throw_assert_msg("Disk read invalid port ", port);
 	}
 }
 
@@ -150,7 +150,7 @@ void Disk::process_cmd (const uint16_t cmd_)
 
 			FileDescriptor desc;
 			desc.id = this->next_id++;
-			mylib_assert_exception(desc.id < std::numeric_limits<uint16_t>::max())
+			mylib_assert(desc.id < std::numeric_limits<uint16_t>::max())
 			desc.fname = std::move(this->fname);
 			desc.file.open(desc.fname.data(), std::ios::binary | std::ios_base::in);
 
@@ -163,7 +163,7 @@ void Disk::process_cmd (const uint16_t cmd_)
 			auto pair = this->file_descriptors.insert(std::make_pair(desc.id, std::move(desc)));
 			
 			if (!pair.second)
-				mylib_throw_exception_msg("file descriptor already exists");
+				mylib_throw_assert_msg("file descriptor already exists");
 
 			this->current_file_descriptor = &pair.first->second;
 
@@ -179,7 +179,7 @@ void Disk::process_cmd (const uint16_t cmd_)
 
 			const auto it = this->file_descriptors.find(this->current_file_descriptor->id);
 
-			mylib_assert_exception(it != this->file_descriptors.end())
+			mylib_assert(it != this->file_descriptors.end())
 
 			FileDescriptor& desc = *this->current_file_descriptor;
 			desc.file.close();
@@ -216,7 +216,7 @@ void Disk::process_cmd (const uint16_t cmd_)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Disk invalid command ", cmd_);
+			mylib_throw_assert_msg("Disk invalid command ", cmd_);
 	}
 }
 
@@ -266,7 +266,7 @@ uint16_t Disk::process_data_read ()
 		break;
 
 		case UploadingFile:
-			mylib_assert_exception(this->count < this->buffer.size())
+			mylib_assert(this->count < this->buffer.size())
 			
 			r = this->buffer[this->count++];
 
@@ -275,7 +275,7 @@ uint16_t Disk::process_data_read ()
 		break;
 
 		default:
-			mylib_throw_exception_msg("Disk invalid state ", static_cast<uint16_t>(this->state));
+			mylib_throw_assert_msg("Disk invalid state ", static_cast<uint16_t>(this->state));
 	}
 
 	return r;
@@ -301,7 +301,7 @@ void Disk::process_data_write (const uint16_t value)
 		break;
 
 		default:
-			mylib_throw_exception_msg("Disk invalid state ", static_cast<uint16_t>(this->state));
+			mylib_throw_assert_msg("Disk invalid state ", static_cast<uint16_t>(this->state));
 	}
 }
 

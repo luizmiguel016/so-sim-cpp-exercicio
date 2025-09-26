@@ -7,6 +7,7 @@
 #include <signal.h>
 
 #include <my-lib/std.h>
+#include <my-lib/exception.h>
 
 #include "config.h"
 #include "lib.h"
@@ -25,7 +26,7 @@ void Lib::die ()
 
 static void interrupt_handler (int dummy)
 {
-	mylib_throw_exception_msg("received interrupt signal");
+	mylib_throw_msg(Mylib::AssertException, "received interrupt signal");
 }
 
 int main (int argc, char **argv)

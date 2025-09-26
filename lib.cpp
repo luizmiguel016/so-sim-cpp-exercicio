@@ -3,6 +3,7 @@
 #include <fstream>
 
 #include <my-lib/std.h>
+#include <my-lib/exception.h>
 #include <my-lib/macros.h>
 
 #include "lib.h"
@@ -18,7 +19,7 @@ static uint32_t get_file_size_bytes (const std::string_view fname)
 	file.open(fname.data(), std::ios::binary | std::ios::in);
 
 	if (!file.is_open())
-		throw Mylib::Exception(Mylib::build_str_from_stream("cannot load file ", fname));
+		mylib_throw_assert_msg("cannot open file ", fname);
 
 	file.seekg(0, std::ios::end);
 	const auto bsize = file.tellg();
@@ -35,8 +36,7 @@ uint32_t get_file_size_words (const std::string_view fname)
 	const uint32_t bsize = get_file_size_bytes(fname);
 
 	static_assert(sizeof(uint16_t) == 2);
-
-	mylib_assert_exception_msg((bsize & 0x01) == 0, "file size of ", fname, " is not even")
+	mylib_assert_msg((bsize & 0x01) == 0, "file size of ", fname, " is not even")
 
 	return bsize / sizeof(uint16_t);
 }
@@ -85,7 +85,7 @@ std::vector<uint16_t> load_from_disk_to_16bit_buffer (const std::string_view fna
 	std::vector<uint16_t> buffer(file_size_words);
 
 	if (!load_from_disk_to_buffer(fname, buffer.data(), file_size_words * sizeof(uint16_t)))
-		throw Mylib::Exception(Mylib::build_str_from_stream("cannot load file ", fname));
+		mylib_throw_assert_msg("cannot load file ", fname);
 
 	return buffer;
 }

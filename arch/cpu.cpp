@@ -21,7 +21,7 @@ static const char* get_reg_name_str (const uint16_t code)
 		"r7"
 		});
 
-	mylib_assert_exception_msg(code < strs.size(), "invalid register code ", code)
+	mylib_assert_msg(code < strs.size(), "invalid register code")
 
 	return strs[code];
 }
@@ -95,7 +95,7 @@ bool Cpu::interrupt (const InterruptCode interrupt_code)
 
 void Cpu::force_interrupt (const InterruptCode interrupt_code)
 {
-	mylib_assert_exception(this->has_interrupt == false)
+	mylib_assert(this->has_interrupt == false)
 	this->interrupt(interrupt_code);
 }
 
@@ -234,10 +234,9 @@ uint16_t Cpu::vmem_to_phys (const uint16_t vaddr, const MemAccessType access_typ
 		break;
 
 		case VmemMode::Paging: {
-			mylib_assert_exception(this->page_table != nullptr)
+			mylib_assert(this->page_table != nullptr)
 
-			PageTableEntry& pte_writeable = (*this->page_table)[vaddr >> Config::page_size_bits];
-			const PageTableEntry& pte = pte_writeable;
+			PageTableEntry& pte = (*this->page_table)[vaddr >> Config::page_size_bits];
 
 			// first, do some protection checks
 
@@ -271,10 +270,10 @@ uint16_t Cpu::vmem_to_phys (const uint16_t vaddr, const MemAccessType access_typ
 
 			// everything ok, perform the address translation
 
-			pte_writeable[PteField::Accessed] = 1;
+			pte.set(PteField::Accessed, 1);
 
 			if (access_type == MemAccessType::Write)
-				pte_writeable[PteField::Dirty] = 1;
+				pte.set(PteField::Dirty, 1);
 
 			paddr = Mylib::set_bits(
 				vaddr,
@@ -307,7 +306,7 @@ const char* enum_class_to_str (const Cpu::CpuException::Type value)
 			"GPFinvalidInstruction",
 		});
 
-	mylib_assert_exception_msg(std::to_underlying(value) < strs.size(), "invalid value ", std::to_underlying(value))
+	mylib_assert_msg(std::to_underlying(value) < strs.size(), "invalid value ", std::to_underlying(value))
 
 	return strs[ std::to_underlying(value) ];
 }

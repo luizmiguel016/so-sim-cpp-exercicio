@@ -2,6 +2,7 @@
 #define __ARQSIM_HEADER_ARCH_DEVICE_H__
 
 #include <my-lib/std.h>
+#include <my-lib/exception.h>
 #include <my-lib/macros.h>
 
 #include "../config.h"

@@ -47,19 +47,19 @@ private:
 public:
 	static void init ()
 	{
-		mylib_assert_exception(computer == nullptr)
+		mylib_assert(computer == nullptr)
 		computer = new Computer;
 	}
 
 	static Computer& get ()
 	{
-		mylib_assert_exception(computer != nullptr)
+		mylib_assert(computer != nullptr)
 		return *computer;
 	}
 
 	static void destroy ()
 	{
-		mylib_assert_exception(computer != nullptr)
+		mylib_assert(computer != nullptr)
 		delete computer;
 		computer = nullptr;
 	}
@@ -93,7 +93,7 @@ public:
 
 	inline void set_io_port (const uint16_t port, IO_Device *device)
 	{
-		mylib_assert_exception(port < this->io_ports.size())
+		mylib_assert(port < this->io_ports.size())
 		this->io_ports[port] = device;
 	}
 
@@ -104,8 +104,8 @@ public:
 
 	inline IO_Device& get_io_port (const uint16_t port) const
 	{
-		mylib_assert_exception(port < this->io_ports.size())
-		mylib_assert_exception(this->io_ports[port] != nullptr)
+		mylib_assert(port < this->io_ports.size())
+		mylib_assert(this->io_ports[port] != nullptr)
 		return *this->io_ports[port];
 	}
 

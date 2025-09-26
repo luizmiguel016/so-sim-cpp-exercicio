@@ -83,13 +83,13 @@ public:
 
 	inline uint16_t get_gpr (const uint8_t code) const
 	{
-		mylib_assert_exception(code < this->gprs.size())
+		mylib_assert(code < this->gprs.size())
 		return this->gprs[code];
 	}
 
 	inline void set_gpr (const uint8_t code, const uint16_t v)
 	{
-		mylib_assert_exception(code < this->gprs.size())
+		mylib_assert(code < this->gprs.size())
 		this->gprs[code] = v;
 	}
 
