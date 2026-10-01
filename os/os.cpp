@@ -1,6 +1,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <array>
+#include <vector>
 
 #include <cstdint>
 #include <cstdlib>
@@ -22,6 +24,79 @@ namespace {
 
 	std::string command_buffer;
 
+	enum class ProcessState : uint16_t {
+		Ready,
+		Running,
+		Blocked,
+		Terminated
+	};
+
+	struct Process {
+		uint16_t pid = 0;
+		std::string binary_name;
+		ProcessState state = ProcessState::Ready;
+		uint32_t memory_size_words = 0;
+		std::array<uint16_t, Config::nregs> gprs = {};
+		uint16_t pc = 0;
+		PageTable page_table = {};
+	};
+
+	std::vector<Process> process_table;
+
+	uint16_t next_pid = 1;
+
+	int32_t running_process_index = -1;
+
+	const char* process_state_to_str (const ProcessState state)
+	{
+		switch (state) {
+			case ProcessState::Ready:
+				return "Ready";
+
+			case ProcessState::Running:
+				return "Running";
+
+			case ProcessState::Blocked:
+				return "Blocked";
+
+			case ProcessState::Terminated:
+				return "Terminated";
+		}
+
+		return "Unknown";
+	}
+
+	void initialize_process_manager ()
+	{
+		process_table.clear();
+		next_pid = 1;
+		running_process_index = -1;
+	}
+
+	void print_process_table ()
+	{
+		if (process_table.empty()) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "No processes.");
+			return;
+		}
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "PID | State      | Memory | Binary");
+
+		for (const Process& process : process_table) {
+			terminal_println(
+				kernel_cpu,
+				Terminal::Kernel,
+				process.pid,
+				"   | ",
+				process_state_to_str(process.state),
+				" | ",
+				process.memory_size_words,
+				" words | ",
+				process.binary_name
+			);
+		}
+	}
+
 	void print_prompt()
 	{
 		terminal_print(kernel_cpu, Terminal::Command, "> ");
@@ -37,6 +112,7 @@ namespace {
 		terminal_println(kernel_cpu, Terminal::Kernel, "Avaiable commands:");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  help       - show available commands");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  exit       - close the simulator");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  ps         - list process");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  load <bin> - load a program (not implemented yet)");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  kill       - kill the running program (not implemented yet)");
 	}
@@ -51,6 +127,11 @@ namespace {
 			return;
 		}
 
+		if (command == "ps") {
+			print_process_table();
+			return;
+		}
+		
 		if (command == "exit") {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Shutting down...");
 			kernel_cpu->turn_off();
@@ -97,6 +178,8 @@ namespace {
 void boot (Arch::Cpu *cpu)
 {
 	kernel_cpu = cpu;
+
+	initialize_process_manager();
 
 	terminal_println(cpu, Terminal::Command, "Type commands here");
 	terminal_println(cpu, Terminal::App, "Apps output here");
