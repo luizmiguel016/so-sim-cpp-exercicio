@@ -32,12 +32,33 @@ namespace {
 		terminal_print(kernel_cpu, Terminal::Command, "\r> ", command_buffer);
 	}
 
+	void print_help()
+	{
+		terminal_println(kernel_cpu, Terminal::Kernel, "Avaiable commands:");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  help       - show available commands");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  exit       - close the simulator");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  load <bin> - load a program (not implemented yet)");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  kill       - kill the running program (not implemented yet)");
+	}
+
 	void execute_command (const std::string& command)
 	{
 		if (command.empty())
 			return;
 
-		terminal_println(kernel_cpu, Terminal::Kernel, "command received: ", command);
+		if (command == "help") {
+			print_help();
+			return;
+		}
+
+		if (command == "exit") {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Shutting down...");
+			kernel_cpu->turn_off();
+			return;
+		}
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Unknown command: ", command);
+		terminal_println(kernel_cpu, Terminal::Kernel, "Type 'help' to see available commands.");
 	}
 
 	void handle_keyboard_interrupt ()
