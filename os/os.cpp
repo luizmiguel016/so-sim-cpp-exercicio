@@ -157,6 +157,41 @@ namespace {
 			terminal_println(kernel_cpu, Terminal::Kernel, "No processes.");
 	}
 
+	uint16_t read_process_word (const uint16_t vaddr)
+	{
+		return kernel_cpu->pmem_read(vaddr);
+	}
+
+	void syscall_print_string()
+	{
+		uint16_t vaddr = kernel_cpu->get_gpr(1);
+
+		while (vaddr < Config::phys_mem_size_words) {
+			const uint16_t value = read_process_word(vaddr);
+
+			if (value == 0)
+				return;
+
+			terminal_print(kernel_cpu, Terminal::App, static_cast<char>(value));
+
+			vaddr++;
+		}
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Syscall 1 error: unterminated string.");
+	}
+
+	void syscall_print_newline()
+	{
+		terminal_println(kernel_cpu, Terminal::App);
+	}
+
+	void syscall_print_integer()
+	{
+		const int16_t value = static_cast<int16_t>(kernel_cpu->get_gpr(1));
+
+		terminal_print(kernel_cpu, Terminal::App, value);
+	}
+
 	void print_prompt()
 	{
 		terminal_print(kernel_cpu, Terminal::Command, "> ");
@@ -302,6 +337,18 @@ void syscall ()
 	switch (service) {
 		case 0:
 			terminate_running_process();
+		break;
+
+		case 1:
+			syscall_print_string();
+		break;
+
+		case 2:
+			syscall_print_newline();
+		break;
+
+		case 3:
+			syscall_print_integer();
 		break;
 
 		default:
