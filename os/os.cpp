@@ -39,6 +39,7 @@ namespace {
 		std::array<uint16_t, Config::nregs> gprs = {};
 		uint16_t pc = 0;
 		PageTable page_table = {};
+		bool is_idle = false;
 	};
 
 	std::vector<Process> process_table;
@@ -46,6 +47,10 @@ namespace {
 	uint16_t next_pid = 1;
 
 	int32_t running_process_index = -1;
+	
+	std::vector<uint16_t> idle_binary;
+
+	int32_t idle_process_index = -1;
 
 	const char* process_state_to_str (const ProcessState state)
 	{
@@ -69,8 +74,13 @@ namespace {
 	void initialize_process_manager ()
 	{
 		process_table.clear();
+
+		idle_binary.clear();
+
 		next_pid = 1;
+
 		running_process_index = -1;
+		idle_process_index = -1;
 	}
 
 	void start_process (Process& process, const std::vector<uint16_t>& binary)
@@ -88,6 +98,36 @@ namespace {
 		kernel_cpu->set_pc(process.pc);
 	}
 
+	void start_idle_process ()
+	{
+		if (idle_process_index == -1)
+			return;
+
+		Process& idle_process = process_table[idle_process_index];
+
+		start_process(idle_process, idle_binary);
+
+		running_process_index = idle_process_index;
+	}
+
+	void initialize_idle_process()
+	{
+		idle_binary = Lib::load_from_disk_to_16bit_buffer("idle.bin");
+
+		Process idle_process;
+
+		idle_process.pid = 0;
+		idle_process.binary_name = "idle.bin";
+		idle_process.memory_size_words = idle_binary.size();
+		idle_process.is_idle = true;
+
+		process_table.push_back(std::move(idle_process));
+
+		idle_process_index = static_cast<int32_t>(process_table.size() - 1);
+
+		start_idle_process();
+	}
+
 	void terminate_running_process()
 	{
 		if (running_process_index == -1)
@@ -95,46 +135,86 @@ namespace {
 
 		Process& process = process_table[running_process_index];
 
+		if (process.is_idle)
+			return;
+
 		process.state = ProcessState::Terminated;
 
 		terminal_println(kernel_cpu, Terminal::Kernel, "Process terminated: PID ", process.pid, " - ", process.binary_name);
 
 		running_process_index = -1;
+
+		start_idle_process();
 	}
 
 	void load_process (const std::string& binary_name)
-	{
-		if(running_process_index != -1) {
-			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: another process is already running.");
-			return;
-		}
+{
+    if (
+        running_process_index != -1 &&
+        !process_table[running_process_index].is_idle
+    ) {
+        terminal_println(
+            kernel_cpu,
+            Terminal::Kernel,
+            "Cannot load program: another user process is already running."
+        );
 
-		try {
-			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
+        return;
+    }
 
-			if (binary.size() > Config::phys_mem_size_words) {
-				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: binary is too large.");
-				return;
-			}
+    try {
+        const std::vector<uint16_t> binary =
+            Lib::load_from_disk_to_16bit_buffer(binary_name);
 
-			Process process;
+        if (binary.size() > Config::phys_mem_size_words) {
+            terminal_println(
+                kernel_cpu,
+                Terminal::Kernel,
+                "Cannot load program: binary is too large."
+            );
 
-			process.pid = next_pid++;
-			process.binary_name = binary_name;
-			process.memory_size_words = binary.size();
+            return;
+        }
 
-			process_table.push_back(std::move(process));
+        if (running_process_index == idle_process_index) {
+            process_table[idle_process_index].state =
+                ProcessState::Ready;
+        }
 
-			running_process_index = static_cast<int32_t>(process_table.size() - 1);
+        Process process;
 
-			start_process(process_table[running_process_index], binary);
+        process.pid = next_pid++;
+        process.binary_name = binary_name;
+        process.memory_size_words = binary.size();
 
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID", process_table[running_process_index].pid, " - ", binary_name);
-		}
-		catch (const std::exception& e) {
-			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
-		}
-	}
+        process_table.push_back(std::move(process));
+
+        running_process_index =
+            static_cast<int32_t>(process_table.size() - 1);
+
+        start_process(
+            process_table[running_process_index],
+            binary
+        );
+
+        terminal_println(
+            kernel_cpu,
+            Terminal::Kernel,
+            "Process loaded: PID ",
+            process_table[running_process_index].pid,
+            " - ",
+            binary_name
+        );
+    }
+    catch (const std::exception& e) {
+        terminal_println(
+            kernel_cpu,
+            Terminal::Kernel,
+            "Cannot load program: ",
+            e.what()
+        );
+    }
+}
 
 	void print_process_table ()
 	{
@@ -150,7 +230,7 @@ namespace {
 				found_live_process = true;
 			}
 
-			terminal_println(kernel_cpu, Terminal::Kernel, process.pid, " | ", process_state_to_str(process.state), " | ", process.memory_size_words, "words | ", process.binary_name);
+			terminal_println(kernel_cpu, Terminal::Kernel, process.pid, " | ", process_state_to_str(process.state), " | ", process.memory_size_words, " words | ", process.binary_name);
 		}
 
 		if (!found_live_process)
@@ -294,6 +374,17 @@ void boot (Arch::Cpu *cpu)
 	terminal_println(cpu, Terminal::Kernel, "Kernel output here");
 
 	print_prompt();
+
+	try {
+		initialize_idle_process();
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Idle process started: PID 0 - idle.bin");
+	}
+	catch (const std::exception& e) {
+		terminal_println(kernel_cpu, Terminal::Kernel, "Cannot start idle process:", e.what());
+
+		kernel_cpu->turn_off();
+	}
 }
 
 // ---------------------------------------
