@@ -73,6 +73,56 @@ namespace {
 		running_process_index = -1;
 	}
 
+	void start_process (Process& process, const std::vector<uint16_t>& binary)
+	{
+		for (uint32_t i = 0; i < binary.size(); i++)
+			kernel_cpu->pmem_write(i, binary[i]);
+
+		for (uint8_t i = 0; i < Config::nregs; i++)
+			kernel_cpu->set_gpr(i, 0);
+
+		process.pc = 1;
+		process.state = ProcessState::Running;
+
+		kernel_cpu->set_vmem_mode(VmemMode::Disabled);
+		kernel_cpu->set_pc(process.pc);
+	}
+
+
+	void load_process (const std::string& binary_name)
+	{
+		if(running_process_index != -1) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: another process is already running.");
+			return;
+		}
+
+		try {
+			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
+
+			if (binary.size() > Config::phys_mem_size_words) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: binary is too large.");
+				return;
+			}
+
+			Process process;
+
+			process.pid = next_pid++;
+			process.binary_name = binary_name;
+			process.memory_size_words = binary.size();
+
+			process_table.push_back(std::move(process));
+
+			running_process_index = static_cast<int32_t>(process_table.size() - 1);
+
+			start_process(process_table[running_process_index], binary);
+
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID", process_table[running_process_index].pid, " - ", binary_name);
+		}
+		catch (const std::exception& e) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
+		}
+	}
+
 	void print_process_table ()
 	{
 		if (process_table.empty()) {
@@ -131,9 +181,22 @@ namespace {
 			print_process_table();
 			return;
 		}
+
+		if (command.starts_with("load ")) {
+			const std::string binary_name = command.substr(5);
+
+			if (binary_name.empty()) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Usage: load <binary>");
+				return;
+			}
+
+			load_process(binary_name);
+			return;
+		}
 		
 		if (command == "exit") {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Shutting down...");
+			
 			kernel_cpu->turn_off();
 			return;
 		}
