@@ -88,6 +88,19 @@ namespace {
 		kernel_cpu->set_pc(process.pc);
 	}
 
+	void terminate_running_process()
+	{
+		if (running_process_index == -1)
+			return;
+
+		Process& process = process_table[running_process_index];
+
+		process.state = ProcessState::Terminated;
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Process terminated: PID ", process.pid, " - ", process.binary_name);
+
+		running_process_index = -1;
+	}
 
 	void load_process (const std::string& binary_name)
 	{
@@ -125,26 +138,23 @@ namespace {
 
 	void print_process_table ()
 	{
-		if (process_table.empty()) {
-			terminal_println(kernel_cpu, Terminal::Kernel, "No processes.");
-			return;
-		}
-
-		terminal_println(kernel_cpu, Terminal::Kernel, "PID | State      | Memory | Binary");
+		bool found_live_process = false;
 
 		for (const Process& process : process_table) {
-			terminal_println(
-				kernel_cpu,
-				Terminal::Kernel,
-				process.pid,
-				"   | ",
-				process_state_to_str(process.state),
-				" | ",
-				process.memory_size_words,
-				" words | ",
-				process.binary_name
-			);
+			if (process.state == ProcessState::Terminated)
+				continue;
+
+			if (!found_live_process) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "PID | State | Memory | Binary");
+
+				found_live_process = true;
+			}
+
+			terminal_println(kernel_cpu, Terminal::Kernel, process.pid, " | ", process_state_to_str(process.state), " | ", process.memory_size_words, "words | ", process.binary_name);
 		}
+
+		if (!found_live_process)
+			terminal_println(kernel_cpu, Terminal::Kernel, "No processes.");
 	}
 
 	void print_prompt()
@@ -281,7 +291,23 @@ void interrupt (const InterruptCode interrupt)
 
 void syscall ()
 {
+	if (running_process_index == -1) {
+		terminal_println(kernel_cpu, Terminal::Kernel, "Syscall ignored: no process is running.");
 
+		return;
+	}
+
+	const uint16_t service = kernel_cpu->get_gpr(0);
+
+	switch (service) {
+		case 0:
+			terminate_running_process();
+		break;
+
+		default:
+			terminal_println(kernel_cpu, Terminal::Kernel, "Unknown Syscall: ", service);
+		break;
+	}
 }
 
 // ---------------------------------------
