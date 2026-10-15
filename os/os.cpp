@@ -3,7 +3,7 @@
 #include <string_view>
 #include <array>
 #include <vector>
-
+#include <utility>
 #include <cstdint>
 #include <cstdlib>
 
@@ -128,7 +128,7 @@ namespace {
 		start_idle_process();
 	}
 
-	void terminate_running_process()
+	void finish_running_process (const char* message)
 	{
 		if (running_process_index == -1)
 			return;
@@ -140,81 +140,89 @@ namespace {
 
 		process.state = ProcessState::Terminated;
 
-		terminal_println(kernel_cpu, Terminal::Kernel, "Process terminated: PID ", process.pid, " - ", process.binary_name);
+		terminal_println(
+			kernel_cpu,
+			Terminal::Kernel,
+			message,
+			" PID ",
+			process.pid,
+			" - ",
+			process.binary_name
+		);
 
 		running_process_index = -1;
 
 		start_idle_process();
 	}
 
+	void terminate_running_process ()
+	{
+		finish_running_process("Process terminated:");
+	}
+
+	void kill_running_process ()
+	{
+		if (
+			running_process_index == -1 ||
+			process_table[running_process_index].is_idle
+		) {
+			terminal_println(
+				kernel_cpu,
+				Terminal::Kernel,
+				"No user process is running."
+			);
+
+			return;
+		}
+
+		finish_running_process("Process killed:");
+	}
+
 	void load_process (const std::string& binary_name)
-{
-    if (
-        running_process_index != -1 &&
-        !process_table[running_process_index].is_idle
-    ) {
-        terminal_println(
-            kernel_cpu,
-            Terminal::Kernel,
-            "Cannot load program: another user process is already running."
-        );
+	{
+		if (
+			running_process_index != -1 &&
+			!process_table[running_process_index].is_idle
+		) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: another user process is already running.");
 
-        return;
-    }
+			return;
+		}
 
-    try {
-        const std::vector<uint16_t> binary =
-            Lib::load_from_disk_to_16bit_buffer(binary_name);
+		try {
+			const std::vector<uint16_t> binary =
+				Lib::load_from_disk_to_16bit_buffer(binary_name);
 
-        if (binary.size() > Config::phys_mem_size_words) {
-            terminal_println(
-                kernel_cpu,
-                Terminal::Kernel,
-                "Cannot load program: binary is too large."
-            );
+			if (binary.size() > Config::phys_mem_size_words) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: binary is too large.");
 
-            return;
-        }
+				return;
+			}
 
-        if (running_process_index == idle_process_index) {
-            process_table[idle_process_index].state =
-                ProcessState::Ready;
-        }
+			Process process;
 
-        Process process;
+			process.pid = next_pid++;
+			process.binary_name = binary_name;
+			process.memory_size_words = binary.size();
 
-        process.pid = next_pid++;
-        process.binary_name = binary_name;
-        process.memory_size_words = binary.size();
+			process_table.push_back(std::move(process));
 
-        process_table.push_back(std::move(process));
+			const int32_t new_process_index = static_cast<int32_t>(process_table.size() - 1);
 
-        running_process_index =
-            static_cast<int32_t>(process_table.size() - 1);
+			if (idle_process_index != -1 && process_table[idle_process_index].state == ProcessState::Running) {
+				process_table[idle_process_index].state = ProcessState::Ready;
+			}
 
-        start_process(
-            process_table[running_process_index],
-            binary
-        );
+			running_process_index = new_process_index;
 
-        terminal_println(
-            kernel_cpu,
-            Terminal::Kernel,
-            "Process loaded: PID ",
-            process_table[running_process_index].pid,
-            " - ",
-            binary_name
-        );
-    }
-    catch (const std::exception& e) {
-        terminal_println(
-            kernel_cpu,
-            Terminal::Kernel,
-            "Cannot load program: ",
-            e.what()
-        );
-    }
-}
+			start_process(process_table[running_process_index], binary);
+
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[running_process_index].pid," - ", binary_name);
+		}
+		catch (const std::exception& e) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
+		}
+	}
 
 	void print_process_table ()
 	{
@@ -284,12 +292,12 @@ namespace {
 
 	void print_help()
 	{
-		terminal_println(kernel_cpu, Terminal::Kernel, "Avaiable commands:");
-		terminal_println(kernel_cpu, Terminal::Kernel, "  help       - show available commands");
+		terminal_println(kernel_cpu, Terminal::Kernel, "Available commands:");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  help       - show Available commands");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  exit       - close the simulator");
 		terminal_println(kernel_cpu, Terminal::Kernel, "  ps         - list process");
-		terminal_println(kernel_cpu, Terminal::Kernel, "  load <bin> - load a program (not implemented yet)");
-		terminal_println(kernel_cpu, Terminal::Kernel, "  kill       - kill the running program (not implemented yet)");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  load <bin> - load a program");
+		terminal_println(kernel_cpu, Terminal::Kernel, "  kill       - kill the running user process");
 	}
 
 	void execute_command (const std::string& command)
@@ -316,6 +324,11 @@ namespace {
 			}
 
 			load_process(binary_name);
+			return;
+		}
+
+		if (command == "kill") {
+			kill_running_process();
 			return;
 		}
 		
