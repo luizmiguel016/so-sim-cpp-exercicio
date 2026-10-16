@@ -85,8 +85,27 @@ namespace {
 
 	void start_process (Process& process, const std::vector<uint16_t>& binary)
 	{
-		for (uint32_t i = 0; i < binary.size(); i++)
-			kernel_cpu->pmem_write(i, binary[i]);
+		process.page_table = {};
+
+		const uint32_t page_count = (binary.size() + Config::page_size - 1) / Config::page_size;
+
+		for (uint32_t page = 0; page < page_count; page++) {
+			PageTableEntry& pte = process.page_table[page];
+
+			pte.set(Arch::Cpu::PteField::PhyFrameID, page);
+			pte.set(Arch::Cpu::PteField::Present, 1);
+			pte.set(Arch::Cpu::PteField::Readable, 1);
+			pte.set(Arch::Cpu::PteField::Writable, 1);
+			pte.set(Arch::Cpu::PteField::Executable, 1);
+		}
+
+		const uint32_t allocated_words = page_count * Config::page_size;
+
+		for (uint32_t i = 0; i < allocated_words; i++) {
+			const uint16_t value = i < binary.size() ? binary[i] : 0;
+
+			kernel_cpu->pmem_write(static_cast<uint16_t>(i), value);
+		}
 
 		for (uint8_t i = 0; i < Config::nregs; i++)
 			kernel_cpu->set_gpr(i, 0);
@@ -94,7 +113,8 @@ namespace {
 		process.pc = 1;
 		process.state = ProcessState::Running;
 
-		kernel_cpu->set_vmem_mode(VmemMode::Disabled);
+		kernel_cpu->set_page_table(&process.page_table);
+		kernel_cpu->set_vmem_mode(VmemMode::Paging);
 		kernel_cpu->set_pc(process.pc);
 	}
 
@@ -245,24 +265,50 @@ namespace {
 			terminal_println(kernel_cpu, Terminal::Kernel, "No processes.");
 	}
 
-	uint16_t read_process_word (const uint16_t vaddr)
+	bool read_process_word(const uint16_t vaddr, uint16_t& value) 
 	{
-		return kernel_cpu->pmem_read(vaddr);
+		if (running_process_index == -1)
+			return false;
+
+		const Process& process = process_table[running_process_index];
+
+		const uint32_t page = vaddr >> Config::page_size_bits;
+
+		const int32_t offset = vaddr & (Config::page_size - 1);
+
+		const PageTableEntry& pte = process.page_table[page];
+
+		if (pte[Arch::Cpu::PteField::Present] == 0 || pte[Arch::Cpu::PteField::Readable] == 0) {
+			return false;
+		}
+
+		const uint32_t paddr = pte[Arch::Cpu::PteField::PhyFrameID] * Config::page_size + offset;
+
+		if (paddr >= Config::phys_mem_size_words)
+			return false;
+
+		value = kernel_cpu->pmem_read(static_cast<uint16_t>(paddr));
+
+		return true;
 	}
 
 	void syscall_print_string()
 	{
-		uint16_t vaddr = kernel_cpu->get_gpr(1);
+		const uint32_t start_address = kernel_cpu->get_gpr(1);
 
-		while (vaddr < Config::phys_mem_size_words) {
-			const uint16_t value = read_process_word(vaddr);
+		for (uint32_t address = start_address; address < Config::virtual_mem_size; address++) {
+			uint16_t value = 0;
+
+			if (!read_process_word(static_cast<uint16_t>(address), value)) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Syscall 1 error: invalid string address.");
+
+				return;
+			}
 
 			if (value == 0)
 				return;
 
 			terminal_print(kernel_cpu, Terminal::App, static_cast<char>(value));
-
-			vaddr++;
 		}
 
 		terminal_println(kernel_cpu, Terminal::Kernel, "Syscall 1 error: unterminated string.");
