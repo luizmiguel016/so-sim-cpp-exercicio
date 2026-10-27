@@ -83,40 +83,47 @@ namespace {
 		idle_process_index = -1;
 	}
 
-	void start_process (Process& process, const std::vector<uint16_t>& binary)
-	{
-		process.page_table = {};
+	
+void start_process(Process& process, const std::vector<uint16_t>& binary)
+{
+    if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
+        throw std::runtime_error("Invalid binary size.");
+    }
 
-		const uint32_t page_count = (binary.size() + Config::page_size - 1) / Config::page_size;
+    const uint32_t page_count = (binary.size() + Config::page_size - 1) / Config::page_size;
 
-		for (uint32_t page = 0; page < page_count; page++) {
-			PageTableEntry& pte = process.page_table[page];
+    process.page_table = {};
 
-			pte.set(Arch::Cpu::PteField::PhyFrameID, page);
-			pte.set(Arch::Cpu::PteField::Present, 1);
-			pte.set(Arch::Cpu::PteField::Readable, 1);
-			pte.set(Arch::Cpu::PteField::Writable, 1);
-			pte.set(Arch::Cpu::PteField::Executable, 1);
-		}
+    for (uint32_t page = 0; page < page_count; ++page) {
+        PageTableEntry& pte = process.page_table[page];
 
-		const uint32_t allocated_words = page_count * Config::page_size;
+        pte.set(Arch::Cpu::PteField::PhyFrameID, page);
+        pte.set(Arch::Cpu::PteField::Present, 1);
+        pte.set(Arch::Cpu::PteField::Readable, 1);
+        pte.set(Arch::Cpu::PteField::Writable, 1);
+        pte.set(Arch::Cpu::PteField::Executable, 1);
+    }
 
-		for (uint32_t i = 0; i < allocated_words; i++) {
-			const uint16_t value = i < binary.size() ? binary[i] : 0;
+    const uint32_t allocated_words = page_count * Config::page_size;
 
-			kernel_cpu->pmem_write(static_cast<uint16_t>(i), value);
-		}
+    for (uint32_t address = 0; address < allocated_words; ++address) {
+        const uint16_t value = address < binary.size() ? binary[address] : 0;
 
-		for (uint8_t i = 0; i < Config::nregs; i++)
-			kernel_cpu->set_gpr(i, 0);
+        kernel_cpu->pmem_write(static_cast<uint16_t>(address), value);
+    }
 
-		process.pc = 1;
-		process.state = ProcessState::Running;
+    for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
+        kernel_cpu->set_gpr(reg, 0);
+    }
 
-		kernel_cpu->set_page_table(&process.page_table);
-		kernel_cpu->set_vmem_mode(VmemMode::Paging);
-		kernel_cpu->set_pc(process.pc);
-	}
+    process.pc = 1;
+    process.state = ProcessState::Running;
+
+    kernel_cpu->set_page_table(&process.page_table);
+    kernel_cpu->set_vmem_mode(VmemMode::Paging);
+    kernel_cpu->set_pc(process.pc);
+}
+
 
 	void start_idle_process ()
 	{
@@ -200,21 +207,17 @@ namespace {
 
 	void load_process (const std::string& binary_name)
 	{
-		if (
-			running_process_index != -1 &&
-			!process_table[running_process_index].is_idle
-		) {
+		if (running_process_index != -1 && !process_table[running_process_index].is_idle) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: another user process is already running.");
 
 			return;
 		}
 
 		try {
-			const std::vector<uint16_t> binary =
-				Lib::load_from_disk_to_16bit_buffer(binary_name);
+			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
 
-			if (binary.size() > Config::phys_mem_size_words) {
-				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: binary is too large.");
+			if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: invalid binary size.");
 
 				return;
 			}
