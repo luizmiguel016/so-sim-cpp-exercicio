@@ -205,6 +205,57 @@ void start_process(Process& process, const std::vector<uint16_t>& binary)
 		finish_running_process("Process killed:");
 	}
 
+	void handle_cpu_exception()
+	{
+		const CpuException& exception = kernel_cpu->get_ref_cpu_exception();
+
+		const uint16_t fault_pc = kernel_cpu->get_pc();
+
+		const char* reason = "Unknown CPU exception";
+
+		switch (exception.type) {
+			case CpuException::Type::VmemPageFault:
+				reason = "Page fault: page not present";
+				break;
+			
+			case CpuException::Type::VmemGPFnotReadable:
+				reason = "GPF: page is not readable";
+				break;
+
+			case CpuException::Type::VmemGPFnotWritable:
+				reason = "GPF: page is not writable";
+				break;
+			
+			case CpuException::Type::VmemGPFnotExecutable:
+				reason = "GPF: page is not executable";
+				break;
+
+			case CpuException::Type::GPFinvalidInstruction:
+				reason = "GPF: invalid instruction";
+				break;
+		}
+
+		if (running_process_index == -1) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Fatal CPU exception: no running process.");
+
+			kernel_cpu->turn_off();
+			return;
+		}
+
+		const Process& process = process_table[running_process_index];
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "CPU exception: ", reason, " | PID ", process.pid, " | PC ", fault_pc, " | Virtual address ", exception.vaddr);
+
+		if (process.is_idle) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Fatal error: idle process failed. Shutting down.");
+
+			kernel_cpu->turn_off();
+			return;
+		}
+
+		finish_running_process("Process terminated by CPU exception:");
+	}
+
 	void load_process (const std::string& binary_name)
 	{
 		if (running_process_index != -1 && !process_table[running_process_index].is_idle) {
@@ -458,21 +509,20 @@ void interrupt (const InterruptCode interrupt)
 
 		case Keyboard:
 			handle_keyboard_interrupt();
-		break;
+			break;
 
 		case Disk:
 			terminal_println(kernel_cpu, Terminal::Kernel, "disk interrupt");
-		break;
+			break;
 
 		case Timer:
-			terminal_println(kernel_cpu, Terminal::Kernel, "timer interrupt");
-		break;
+			terminal_println(kernel_cpu, Terminal::Kernel, "Timer interrupt");
+			break;
 
 		case CpuException:
-			terminal_println(kernel_cpu, Terminal::Kernel, "cpu exception interrupt");
-		break;
+			handle_cpu_exception();
+			break;
 	}
-
 }
 
 // ---------------------------------------
