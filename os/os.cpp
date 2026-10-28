@@ -46,12 +46,14 @@ namespace {
 	std::deque<Process> process_table;
 
 	uint16_t next_pid = 1;
-
 	int32_t running_process_index = -1;
 	
 	std::vector<uint16_t> idle_binary;
-
 	int32_t idle_process_index = -1;
+
+	constexpr uint32_t total_physical_frames = Config::phys_mem_size_words / Config::page_size;
+
+	std::array<bool, total_physical_frames> physical_frames_used = {};
 
 	const char* process_state_to_str (const ProcessState state)
 	{
@@ -75,13 +77,40 @@ namespace {
 	void initialize_process_manager ()
 	{
 		process_table.clear();
-
 		idle_binary.clear();
 
-		next_pid = 1;
+		physical_frames_used.fill(false);
 
+		next_pid = 1;
 		running_process_index = -1;
 		idle_process_index = -1;
+	}
+
+	uint16_t allocate_physical_frame()
+	{
+		for (uint32_t frame = 0; frame < physical_frames_used.size(); ++frame) {
+			if (!physical_frames_used[frame]) {
+				physical_frames_used[frame] = true;
+
+				return static_cast<uint16_t>(frame);
+			}
+		}
+
+		throw std::runtime_error("Not enough free physical frames.");
+	}
+
+	void release_process_frames(Process& process)
+	{
+		for (PageTableEntry& pte : process.page_table) {
+			if(pte[Arch::Cpu::PteField::Present] == 0)
+				continue;
+
+			const uint32_t frame = pte[Arch::Cpu::PteField::PhyFrameID];
+
+			physical_frames_used[frame] = false;
+
+			pte = {};
+		}
 	}
 
 	void save_running_context()
@@ -133,22 +162,31 @@ namespace {
 
 		process.page_table = {};
 
-		for (uint32_t page = 0; page < page_count; ++page) {
-			PageTableEntry& pte = process.page_table[page];
+		try {
+			for (uint32_t page = 0; page < page_count; ++page) {
+				const uint16_t frame = allocate_physical_frame();
 
-			pte.set(Arch::Cpu::PteField::PhyFrameID, page);
-			pte.set(Arch::Cpu::PteField::Present, 1);
-			pte.set(Arch::Cpu::PteField::Readable, 1);
-			pte.set(Arch::Cpu::PteField::Writable, 1);
-			pte.set(Arch::Cpu::PteField::Executable, 1);
-		}
+				PageTableEntry& pte = process.page_table[page];
 
-		const uint32_t allocated_words = page_count * Config::page_size;
+				pte.set(Arch::Cpu::PteField::PhyFrameID, frame);
+				pte.set(Arch::Cpu::PteField::Present, 1);
+				pte.set(Arch::Cpu::PteField::Readable, 1);
+				pte.set(Arch::Cpu::PteField::Writable, 1);
+				pte.set(Arch::Cpu::PteField::Executable, 1);
 
-		for (uint32_t address = 0; address < allocated_words; ++address) {
-			const uint16_t value = address < binary.size() ? binary[address] : 0;
+				for (uint32_t offset = 0; offset < Config::page_size; ++offset) {
+					const uint32_t virtual_address = page * Config::page_size + offset;
 
-			kernel_cpu->pmem_write(static_cast<uint16_t>(address), value);
+					const uint32_t physical_address = static_cast<uint32_t>(frame) * Config::page_size + offset;
+
+					const uint16_t value = virtual_address < binary.size() ? binary[virtual_address] : 0;
+
+					kernel_cpu->pmem_write(static_cast<uint16_t>(physical_address), value);
+				}
+			}
+		} catch (...) {
+			release_process_frames(process);
+			throw;
 		}
 
 		for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
@@ -171,9 +209,13 @@ namespace {
 
 		Process& idle_process = process_table[idle_process_index];
 
-		start_process(idle_process, idle_binary);
+		idle_process.pc = 1;
+		idle_process.gprs.fill(0);
+		idle_process.state = ProcessState::Running;
 
 		running_process_index = idle_process_index;
+
+		restore_running_context();
 	}
 
 	void initialize_idle_process()
@@ -191,7 +233,15 @@ namespace {
 
 		idle_process_index = static_cast<int32_t>(process_table.size() - 1);
 
-		start_idle_process();
+		try {
+			start_process(process_table[idle_process_index], idle_binary);
+
+			running_process_index = idle_process_index;
+		} catch (...) {
+			process_table.pop_back();
+			idle_process_index = -1;
+			throw;
+		}
 	}
 
 	void finish_running_process (const char* message)
@@ -206,15 +256,9 @@ namespace {
 
 		process.state = ProcessState::Terminated;
 
-		terminal_println(
-			kernel_cpu,
-			Terminal::Kernel,
-			message,
-			" PID ",
-			process.pid,
-			" - ",
-			process.binary_name
-		);
+		terminal_println(kernel_cpu, Terminal::Kernel, message, " PID ", process.pid, " - ", process.binary_name);
+
+		release_process_frames(process);
 
 		running_process_index = -1;
 
@@ -314,7 +358,7 @@ namespace {
 
 			Process process;
 
-			process.pid = next_pid++;
+			process.pid = next_pid;
 			process.binary_name = binary_name;
 			process.memory_size_words = binary.size();
 
@@ -322,17 +366,23 @@ namespace {
 
 			const int32_t new_process_index = static_cast<int32_t>(process_table.size() - 1);
 
+			try {
+				start_process(process_table[new_process_index], binary);
+			} catch (...) {
+				process_table.pop_back();
+				throw;
+			}
+
+			++next_pid;
+
 			if (idle_process_index != -1 && process_table[idle_process_index].state == ProcessState::Running) {
 				process_table[idle_process_index].state = ProcessState::Ready;
 			}
 
 			running_process_index = new_process_index;
 
-			start_process(process_table[running_process_index], binary);
-
 			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[running_process_index].pid," - ", binary_name);
-		}
-		catch (const std::exception& e) {
+		} catch (const std::exception& e) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
 		}
 	}
