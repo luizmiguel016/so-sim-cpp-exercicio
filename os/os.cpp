@@ -6,6 +6,7 @@
 #include <utility>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
 
 #include "../config.h"
 #include "../lib.h"
@@ -42,7 +43,7 @@ namespace {
 		bool is_idle = false;
 	};
 
-	std::vector<Process> process_table;
+	std::deque<Process> process_table;
 
 	uint16_t next_pid = 1;
 
@@ -83,47 +84,85 @@ namespace {
 		idle_process_index = -1;
 	}
 
+	void save_running_context()
+	{
+		if (running_process_index == -1)
+			return;
+
+		Process& process = process_table[running_process_index];
+
+		if (process.state != ProcessState::Running)
+			return;
+
+		process.pc = kernel_cpu->get_pc();
+
+		for (uint8_t reg = 0; reg < Config::nregs; reg++) {
+			process.gprs[reg] = kernel_cpu->get_gpr(reg);
+		}
+	}
+
+	void restore_running_context()
+	{
+		if (running_process_index == -1)
+			return;
+
+		Process& process = process_table[running_process_index];
+
+		if (process.state != ProcessState::Running)
+			return;
+
+		kernel_cpu->set_page_table(&process.page_table);
+
+		kernel_cpu->set_vmem_mode(VmemMode::Paging);
+
+		for (uint8_t reg = 0; reg < Config::nregs; reg++) {
+			kernel_cpu->set_gpr(reg, process.gprs[reg]);
+		}
+
+		kernel_cpu->set_pc(process.pc);
+	}
 	
-void start_process(Process& process, const std::vector<uint16_t>& binary)
-{
-    if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
-        throw std::runtime_error("Invalid binary size.");
-    }
+	
+	void start_process(Process& process, const std::vector<uint16_t>& binary)
+	{
+		if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
+			throw std::runtime_error("Invalid binary size.");
+		}
 
-    const uint32_t page_count = (binary.size() + Config::page_size - 1) / Config::page_size;
+		const uint32_t page_count = (binary.size() + Config::page_size - 1) / Config::page_size;
 
-    process.page_table = {};
+		process.page_table = {};
 
-    for (uint32_t page = 0; page < page_count; ++page) {
-        PageTableEntry& pte = process.page_table[page];
+		for (uint32_t page = 0; page < page_count; ++page) {
+			PageTableEntry& pte = process.page_table[page];
 
-        pte.set(Arch::Cpu::PteField::PhyFrameID, page);
-        pte.set(Arch::Cpu::PteField::Present, 1);
-        pte.set(Arch::Cpu::PteField::Readable, 1);
-        pte.set(Arch::Cpu::PteField::Writable, 1);
-        pte.set(Arch::Cpu::PteField::Executable, 1);
-    }
+			pte.set(Arch::Cpu::PteField::PhyFrameID, page);
+			pte.set(Arch::Cpu::PteField::Present, 1);
+			pte.set(Arch::Cpu::PteField::Readable, 1);
+			pte.set(Arch::Cpu::PteField::Writable, 1);
+			pte.set(Arch::Cpu::PteField::Executable, 1);
+		}
 
-    const uint32_t allocated_words = page_count * Config::page_size;
+		const uint32_t allocated_words = page_count * Config::page_size;
 
-    for (uint32_t address = 0; address < allocated_words; ++address) {
-        const uint16_t value = address < binary.size() ? binary[address] : 0;
+		for (uint32_t address = 0; address < allocated_words; ++address) {
+			const uint16_t value = address < binary.size() ? binary[address] : 0;
 
-        kernel_cpu->pmem_write(static_cast<uint16_t>(address), value);
-    }
+			kernel_cpu->pmem_write(static_cast<uint16_t>(address), value);
+		}
 
-    for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
-        kernel_cpu->set_gpr(reg, 0);
-    }
+		for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
+			process.gprs[reg] = 0;
+			kernel_cpu->set_gpr(reg, 0);
+		}
 
-    process.pc = 1;
-    process.state = ProcessState::Running;
+		process.pc = 1;
+		process.state = ProcessState::Running;
 
-    kernel_cpu->set_page_table(&process.page_table);
-    kernel_cpu->set_vmem_mode(VmemMode::Paging);
-    kernel_cpu->set_pc(process.pc);
-}
-
+		kernel_cpu->set_page_table(&process.page_table);
+		kernel_cpu->set_vmem_mode(VmemMode::Paging);
+		kernel_cpu->set_pc(process.pc);
+	}
 
 	void start_idle_process ()
 	{
@@ -476,90 +515,92 @@ void start_process(Process& process, const std::vector<uint16_t>& binary)
 
 }
 
-void boot (Arch::Cpu *cpu)
-{
-	kernel_cpu = cpu;
+	void boot (Arch::Cpu *cpu)
+	{
+		kernel_cpu = cpu;
 
-	initialize_process_manager();
+		initialize_process_manager();
 
-	terminal_println(cpu, Terminal::Command, "Type commands here");
-	terminal_println(cpu, Terminal::App, "Apps output here");
-	terminal_println(cpu, Terminal::Kernel, "Kernel output here");
+		terminal_println(cpu, Terminal::Command, "Type commands here");
+		terminal_println(cpu, Terminal::App, "Apps output here");
+		terminal_println(cpu, Terminal::Kernel, "Kernel output here");
 
-	print_prompt();
+		print_prompt();
 
-	try {
-		initialize_idle_process();
+		try {
+			initialize_idle_process();
 
-		terminal_println(kernel_cpu, Terminal::Kernel, "Idle process started: PID 0 - idle.bin");
+			terminal_println(kernel_cpu, Terminal::Kernel, "Idle process started: PID 0 - idle.bin");
+		}
+		catch (const std::exception& e) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot start idle process:", e.what());
+
+			kernel_cpu->turn_off();
+		}
 	}
-	catch (const std::exception& e) {
-		terminal_println(kernel_cpu, Terminal::Kernel, "Cannot start idle process:", e.what());
 
-		kernel_cpu->turn_off();
+	// ---------------------------------------
+
+	void interrupt (const InterruptCode interrupt)
+	{
+		switch (interrupt) {
+			using enum InterruptCode;
+
+			case Keyboard:
+				handle_keyboard_interrupt();
+				break;
+
+			case Disk:
+				terminal_println(kernel_cpu, Terminal::Kernel, "disk interrupt");
+				break;
+
+			case Timer:
+				save_running_context();
+				restore_running_context();
+				terminal_println(kernel_cpu, Terminal::Kernel, "Timer interrupt");
+				break;
+
+			case CpuException:
+				handle_cpu_exception();
+				break;
+		}
 	}
-}
 
 // ---------------------------------------
 
-void interrupt (const InterruptCode interrupt)
-{
-	switch (interrupt) {
-		using enum InterruptCode;
+	void syscall ()
+	{
+		if (running_process_index == -1) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Syscall ignored: no process is running.");
 
-		case Keyboard:
-			handle_keyboard_interrupt();
+			return;
+		}
+
+		const uint16_t service = kernel_cpu->get_gpr(0);
+
+		switch (service) {
+			case 0:
+				terminate_running_process();
 			break;
 
-		case Disk:
-			terminal_println(kernel_cpu, Terminal::Kernel, "disk interrupt");
+			case 1:
+				syscall_print_string();
 			break;
 
-		case Timer:
-			terminal_println(kernel_cpu, Terminal::Kernel, "Timer interrupt");
+			case 2:
+				syscall_print_newline();
 			break;
 
-		case CpuException:
-			handle_cpu_exception();
+			case 3:
+				syscall_print_integer();
 			break;
+
+			default:
+				terminal_println(kernel_cpu, Terminal::Kernel, "Unknown Syscall: ", service);
+			break;
+		}
 	}
-}
 
-// ---------------------------------------
-
-void syscall ()
-{
-	if (running_process_index == -1) {
-		terminal_println(kernel_cpu, Terminal::Kernel, "Syscall ignored: no process is running.");
-
-		return;
-	}
-
-	const uint16_t service = kernel_cpu->get_gpr(0);
-
-	switch (service) {
-		case 0:
-			terminate_running_process();
-		break;
-
-		case 1:
-			syscall_print_string();
-		break;
-
-		case 2:
-			syscall_print_newline();
-		break;
-
-		case 3:
-			syscall_print_integer();
-		break;
-
-		default:
-			terminal_println(kernel_cpu, Terminal::Kernel, "Unknown Syscall: ", service);
-		break;
-	}
-}
-
-// ---------------------------------------
+	// ---------------------------------------
 
 } // end namespace OS
