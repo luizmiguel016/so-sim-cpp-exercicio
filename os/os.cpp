@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <cstddef>
 
 #include "../config.h"
 #include "../lib.h"
@@ -191,29 +192,58 @@ namespace {
 
 		for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
 			process.gprs[reg] = 0;
-			kernel_cpu->set_gpr(reg, 0);
 		}
 
 		process.pc = 1;
-		process.state = ProcessState::Running;
-
-		kernel_cpu->set_page_table(&process.page_table);
-		kernel_cpu->set_vmem_mode(VmemMode::Paging);
-		kernel_cpu->set_pc(process.pc);
+		process.state = ProcessState::Ready;
 	}
 
-	void start_idle_process ()
+	void schedule_next_process()
 	{
-		if (idle_process_index == -1)
+		if (idle_process_index == -1 || process_table.empty()) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Fatal error: no idle process available.");
+
+			kernel_cpu->turn_off();
 			return;
+		}
 
-		Process& idle_process = process_table[idle_process_index];
+		const int32_t previous_index = running_process_index;
 
-		idle_process.pc = 1;
-		idle_process.gprs.fill(0);
-		idle_process.state = ProcessState::Running;
+		if (previous_index != -1 && process_table[previous_index].state == ProcessState::Running) {
+			save_running_context();
 
-		running_process_index = idle_process_index;
+			process_table[previous_index].state = ProcessState::Ready;
+		}
+
+		const std::size_t process_count = process_table.size();
+
+		const std::size_t start_index = previous_index == -1 ? 0 : (static_cast<std::size_t>(previous_index) + 1) % process_count;
+
+		int32_t next_index = -1;
+
+		for (std::size_t step = 0; step < process_count; ++step) {
+			const std::size_t candidate = (start_index + step) % process_count;
+
+			Process& process = process_table[candidate];
+
+			if (process.is_idle)
+				continue;
+
+			if (process.state == ProcessState::Ready) {
+				next_index = static_cast<int32_t>(candidate);
+				break;
+			}
+		}
+
+		if (next_index == -1) {
+			next_index = idle_process_index;
+		}
+
+		running_process_index = next_index;
+
+		Process& next_process = process_table[next_index];
+
+		next_process.state = ProcessState::Running;
 
 		restore_running_context();
 	}
@@ -242,6 +272,8 @@ namespace {
 			idle_process_index = -1;
 			throw;
 		}
+
+		schedule_next_process();
 	}
 
 	void finish_running_process (const char* message)
@@ -260,9 +292,7 @@ namespace {
 
 		release_process_frames(process);
 
-		running_process_index = -1;
-
-		start_idle_process();
+		schedule_next_process();
 	}
 
 	void terminate_running_process ()
@@ -341,12 +371,6 @@ namespace {
 
 	void load_process (const std::string& binary_name)
 	{
-		if (running_process_index != -1 && !process_table[running_process_index].is_idle) {
-			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: another user process is already running.");
-
-			return;
-		}
-
 		try {
 			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
 
@@ -375,13 +399,12 @@ namespace {
 
 			++next_pid;
 
-			if (idle_process_index != -1 && process_table[idle_process_index].state == ProcessState::Running) {
-				process_table[idle_process_index].state = ProcessState::Ready;
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[running_process_index].pid," - ", binary_name);
+
+			if (running_process_index != -1 && process_table[running_process_index].is_idle) {
+				schedule_next_process();
 			}
 
-			running_process_index = new_process_index;
-
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[running_process_index].pid," - ", binary_name);
 		} catch (const std::exception& e) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
 		}
@@ -605,9 +628,7 @@ namespace {
 				break;
 
 			case Timer:
-				save_running_context();
-				restore_running_context();
-				terminal_println(kernel_cpu, Terminal::Kernel, "Timer interrupt");
+				schedule_next_process();
 				break;
 
 			case CpuException:
