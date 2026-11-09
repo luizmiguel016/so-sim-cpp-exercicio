@@ -9,6 +9,7 @@
 #include "process.h"
 #include "memory.h"
 #include "scheduler.h"
+#include <cstddef>
 
 namespace OS::Internal {
 
@@ -51,9 +52,46 @@ namespace OS::Internal {
 		idle_process_index = -1;
 	}
 
-	void start_process(Process& process, const std::vector<uint16_t>& binary)
+	
+	namespace {
+
+		bool is_valid_binary_size(const std::size_t size)
+		{
+			return size >= 2 && size <= Config::phys_mem_size_words;
+		}
+
+		void copy_binary_page(const std::vector<uint16_t>& binary, const uint32_t page, const uint16_t frame)
+		{
+			for (uint32_t offset = 0; offset < Config::page_size; ++offset) {
+				const uint32_t virtual_address = page * Config::page_size + offset;
+				const uint32_t physical_address = static_cast<uint32_t>(frame) * Config::page_size + offset;
+				const uint16_t value = virtual_address < binary.size() ? binary[virtual_address] : 0;
+
+				kernel_cpu->pmem_write(static_cast<uint16_t>(physical_address), value);
+			}
+		}
+
+		void map_binary_page(Process& process, const std::vector<uint16_t>& binary, const uint32_t page)
+		{
+			const uint16_t frame = allocate_physical_frame();
+
+			PageTableEntry& pte = process.page_table[page];
+
+			pte.set(Arch::Cpu::PteField::PhyFrameID, frame);
+			pte.set(Arch::Cpu::PteField::Present, 1);
+			pte.set(Arch::Cpu::PteField::Readable, 1);
+			pte.set(Arch::Cpu::PteField::Writable, 1);
+			pte.set(Arch::Cpu::PteField::Executable, 1);
+
+			copy_binary_page(binary, page, frame);
+		}
+
+	} // namespace anonimo
+
+	
+	void start_process(Process& process,const std::vector<uint16_t>& binary)
 	{
-		if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
+		if (!is_valid_binary_size(binary.size())) {
 			throw std::runtime_error("Invalid binary size.");
 		}
 
@@ -63,27 +101,10 @@ namespace OS::Internal {
 
 		try {
 			for (uint32_t page = 0; page < page_count; ++page) {
-				const uint16_t frame = allocate_physical_frame();
-
-				PageTableEntry& pte = process.page_table[page];
-
-				pte.set(Arch::Cpu::PteField::PhyFrameID, frame);
-				pte.set(Arch::Cpu::PteField::Present, 1);
-				pte.set(Arch::Cpu::PteField::Readable, 1);
-				pte.set(Arch::Cpu::PteField::Writable, 1);
-				pte.set(Arch::Cpu::PteField::Executable, 1);
-
-				for (uint32_t offset = 0; offset < Config::page_size; ++offset) {
-					const uint32_t virtual_address = page * Config::page_size + offset;
-
-					const uint32_t physical_address = static_cast<uint32_t>(frame) * Config::page_size + offset;
-
-					const uint16_t value = virtual_address < binary.size() ? binary[virtual_address] : 0;
-
-					kernel_cpu->pmem_write(static_cast<uint16_t>(physical_address), value);
-				}
+				map_binary_page(process, binary, page);
 			}
-		} catch (...) {
+		}
+		catch (...) {
 			release_process_frames(process);
 			throw;
 		}
@@ -95,6 +116,35 @@ namespace OS::Internal {
 		process.pc = 1;
 		process.state = ProcessState::Ready;
 	}
+
+	namespace {
+
+		int32_t register_loaded_process(const std::string& binary_name, const std::vector<uint16_t>& binary)
+		{
+			Process process;
+
+			process.pid = next_pid;
+			process.binary_name = binary_name;
+			process.memory_size_words = binary.size();
+
+			process_table.push_back(std::move(process));
+
+			const int32_t new_process_index = static_cast<int32_t>(process_table.size() - 1);
+
+			try {
+				start_process(process_table[new_process_index], binary);
+			}
+			catch (...) {
+				process_table.pop_back();
+				throw;
+			}
+
+			++next_pid;
+
+			return new_process_index;
+		}
+
+	} // namespace anonimo
 
 	void initialize_idle_process()
 	{
@@ -166,35 +216,39 @@ namespace OS::Internal {
 		finish_running_process("Process killed:");
 	}
 
+	namespace {
+
+		const char* cpu_exception_reason(const CpuException::Type type)
+		{
+			switch (type) {
+				case CpuException::Type::VmemPageFault:
+					return "Page fault: page not present";
+
+				case CpuException::Type::VmemGPFnotReadable:
+					return "GPF: page is not readable";
+
+				case CpuException::Type::VmemGPFnotWritable:
+					return "GPF: page is not writable";
+
+				case CpuException::Type::VmemGPFnotExecutable:
+					return "GPF: page is not executable";
+
+				case CpuException::Type::GPFinvalidInstruction:
+					return "GPF: invalid instruction";
+			}
+
+			return "Unknown CPU exception";
+		}
+
+	} // namespace anonimo
+
 	void handle_cpu_exception()
 	{
 		const CpuException& exception = kernel_cpu->get_ref_cpu_exception();
 
 		const uint16_t fault_pc = kernel_cpu->get_pc();
 
-		const char* reason = "Unknown CPU exception";
-
-		switch (exception.type) {
-			case CpuException::Type::VmemPageFault:
-				reason = "Page fault: page not present";
-				break;
-			
-			case CpuException::Type::VmemGPFnotReadable:
-				reason = "GPF: page is not readable";
-				break;
-
-			case CpuException::Type::VmemGPFnotWritable:
-				reason = "GPF: page is not writable";
-				break;
-			
-			case CpuException::Type::VmemGPFnotExecutable:
-				reason = "GPF: page is not executable";
-				break;
-
-			case CpuException::Type::GPFinvalidInstruction:
-				reason = "GPF: invalid instruction";
-				break;
-		}
+		const char* reason = cpu_exception_reason(exception.type);
 
 		if (running_process_index == -1) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Fatal CPU exception: no running process.");
@@ -222,32 +276,15 @@ namespace OS::Internal {
 		try {
 			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
 
-			if (binary.size() < 2 || binary.size() > Config::phys_mem_size_words) {
+			if (!is_valid_binary_size(binary.size())) {
 				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: invalid binary size.");
 
 				return;
 			}
+			
+			const int32_t new_process_index = register_loaded_process(binary_name, binary);
 
-			Process process;
-
-			process.pid = next_pid;
-			process.binary_name = binary_name;
-			process.memory_size_words = binary.size();
-
-			process_table.push_back(std::move(process));
-
-			const int32_t new_process_index = static_cast<int32_t>(process_table.size() - 1);
-
-			try {
-				start_process(process_table[new_process_index], binary);
-			} catch (...) {
-				process_table.pop_back();
-				throw;
-			}
-
-			++next_pid;
-
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[running_process_index].pid," - ", binary_name);
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[new_process_index].pid," - ", binary_name);
 
 			if (running_process_index != -1 && process_table[running_process_index].is_idle) {
 				schedule_next_process();
