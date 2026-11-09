@@ -64,35 +64,6 @@ namespace OS {
 
 	void syscall()
 	{
-		if (Internal::running_process_index == -1) {
-			terminal_println(Internal::kernel_cpu, Terminal::Kernel, "Syscall ignored: no process is running.");
-
-			return;
-		}
-
-		const uint16_t service = Internal::kernel_cpu->get_gpr(0);
-
-		switch (service) {
-			case 0:
-				Internal::terminate_running_process();
-				break;
-
-			case 1:
-				Internal::syscall_print_string();
-				break;
-
-			case 2:
-				Internal::syscall_print_newline();
-				break;
-
-			case 3:
-				Internal::syscall_print_integer();
-				break;
-
-			default:
-				terminal_println(Internal::kernel_cpu, Terminal::Kernel, "Unknown Syscall: ", service);
-				break;
-	
-		}
+		Internal::dispatch_syscall();
 	}
 } // namespace OS
