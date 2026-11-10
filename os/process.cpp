@@ -236,6 +236,40 @@ namespace OS::Internal {
 		finish_running_process("Process killed:");
 	}
 
+	void kill_process(const uint16_t pid)
+	{
+		if (pid == 0) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot kill idle process.");
+			return;
+		}
+
+		for (std::size_t index = 0; index < process_table.size(); ++index) {
+			Process& process = process_table[index];
+
+			if (process.pid != pid)
+				continue;
+
+			if (process.state == ProcessState::Terminated) {
+				terminal_println(kernel_cpu, Terminal::Kernel, "Process already terminated: PID", pid);
+				return;
+			}
+
+			if (static_cast<int32_t>(index) == running_process_index && process.state == ProcessState::Running) {
+				finish_running_process("Process killed:");
+				return;
+			}
+
+			process.state = ProcessState::Terminated;
+
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process killed: PID ", process.pid, " - ", process.binary_name);
+
+			release_process_frames(process);
+			return;
+
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process not found: PID ", pid);
+		}
+	}
+
 	void handle_cpu_exception()
 	{
 		const CpuException& exception = kernel_cpu->get_ref_cpu_exception();

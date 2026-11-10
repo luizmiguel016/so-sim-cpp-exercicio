@@ -4,6 +4,9 @@
 #include "os-lib.h"
 #include "process.h"
 #include "terminal.h"
+#include <charconv>
+#include <cstdint>
+#include <system_error>
 
 namespace OS::Internal {
 
@@ -24,6 +27,7 @@ namespace OS::Internal {
             terminal_println(kernel_cpu, Terminal::Kernel, "  ps         - list process");
             terminal_println(kernel_cpu, Terminal::Kernel, "  load <bin> - load a program");
             terminal_println(kernel_cpu, Terminal::Kernel, "  kill       - kill the running user process");
+            terminal_println(kernel_cpu, Terminal::Kernel, "  kill <pid> - kill a process by PID");
         }
 
         void execute_load_command(const std::string& command)
@@ -60,6 +64,23 @@ namespace OS::Internal {
 
             if (command == "kill") {
                 kill_running_process();
+                return;
+            }
+
+
+            if (command.starts_with("kill ")) {
+                const std::string pid_text = command.substr(5);
+                uint16_t pid = 0;
+                const char* begin = pid_text.data();
+                const char* end = begin + pid_text.size();
+                const auto result = std::from_chars(begin, end, pid);
+
+                if (pid_text.empty() || result.ec != std::errc{} || result.ptr != end ) {
+                    terminal_println(kernel_cpu, Terminal::Kernel, "Usage: kill <pid>");
+                    return;
+                }
+
+                kill_process(pid);
                 return;
             }
 

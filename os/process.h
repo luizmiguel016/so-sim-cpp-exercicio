@@ -42,6 +42,7 @@ namespace OS::Internal {
 
     void terminate_running_process();
     void kill_running_process();
+    void kill_process(uint16_t pid);
     void handle_cpu_exception();
 
     void load_process(const std::string& binary_name);
