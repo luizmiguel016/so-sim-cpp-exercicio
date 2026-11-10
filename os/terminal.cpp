@@ -42,6 +42,25 @@ namespace OS::Internal {
             load_process(binary_name);
         }
 
+        void execute_kill_command(const std::string& command)
+        {
+            const std::string pid_text = command.substr(5);
+
+            uint16_t pid = 0;
+
+            const char* begin = pid_text.data();
+            const char* end = begin + pid_text.size();
+
+            const auto result = std::from_chars(begin, end, pid);
+
+            if (pid_text.empty() || result.ec != std::errc{} || result.ptr != end) {
+                terminal_println(kernel_cpu, Terminal::Kernel, "Usage: kill <pid>");
+                return;
+            }
+
+            kill_process(pid);
+        }
+
         void execute_command(const std::string& command)
         {
             if (command.empty())
@@ -66,21 +85,9 @@ namespace OS::Internal {
                 kill_running_process();
                 return;
             }
-
-
+           
             if (command.starts_with("kill ")) {
-                const std::string pid_text = command.substr(5);
-                uint16_t pid = 0;
-                const char* begin = pid_text.data();
-                const char* end = begin + pid_text.size();
-                const auto result = std::from_chars(begin, end, pid);
-
-                if (pid_text.empty() || result.ec != std::errc{} || result.ptr != end ) {
-                    terminal_println(kernel_cpu, Terminal::Kernel, "Usage: kill <pid>");
-                    return;
-                }
-
-                kill_process(pid);
+                execute_kill_command(command);
                 return;
             }
 
