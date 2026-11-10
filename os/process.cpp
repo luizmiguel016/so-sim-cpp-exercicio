@@ -23,7 +23,8 @@ namespace OS::Internal {
 
 	void start_process(Process& process, const std::vector<uint16_t>& binary);
 
-	namespace {
+	namespace 
+	{
 
 		bool is_valid_binary_size(const std::size_t size)
 		{
@@ -104,8 +105,33 @@ namespace OS::Internal {
 
 			return "Unknown CPU exception";
 		}
+		
+		bool has_sleep_finished(const Process& process, const uint16_t current_seconds)
+		{
+			const uint16_t elapsed_seconds = static_cast<uint16_t>(current_seconds - process.sleep_started_at_seconds);
 
+			return elapsed_seconds >= process.sleep_duration_seconds;
+		}
 	} // namespace anonimo
+	
+	void wake_sleeping_processes()
+	{
+		const uint16_t current_seconds = kernel_cpu->read_io(IO_Port::TimerGetTimeSeconds);
+
+		for (Process& process : process_table) {
+			if (process.state != ProcessState::Blocked)
+				continue;
+
+			if (process.sleep_duration_seconds == 0)
+				continue;
+
+			if (!has_sleep_finished(process, current_seconds))
+				continue;
+
+			process.sleep_duration_seconds = 0;
+			process.state = ProcessState::Ready;
+		}
+	}
 
     const char* process_state_to_str (const ProcessState state)
 	{
@@ -268,6 +294,26 @@ namespace OS::Internal {
 
 			terminal_println(kernel_cpu, Terminal::Kernel, "Process not found: PID ", pid);
 		}
+	}
+
+	void sleep_running_process(const uint16_t seconds)
+	{
+		if (seconds == 0 || running_process_index == -1)
+			return;
+
+		Process& process = process_table[running_process_index];
+
+		if (process.is_idle || process.state != ProcessState::Running)
+			return;
+
+		save_running_context();
+
+		process.sleep_started_at_seconds = kernel_cpu->read_io(IO_Port::TimerGetTimeSeconds);
+
+		process.sleep_duration_seconds = seconds;
+		process.state = ProcessState::Blocked;
+
+		schedule_next_process();
 	}
 
 	void handle_cpu_exception()

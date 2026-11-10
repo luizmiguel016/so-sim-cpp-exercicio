@@ -51,8 +51,9 @@ namespace OS {
 			case Disk:
 				terminal_println(Internal::kernel_cpu, Terminal::Kernel, "disk interrupt");
 				break;
-
+			
 			case Timer:
+				Internal::wake_sleeping_processes();
 				Internal::schedule_next_process();
 				break;
 

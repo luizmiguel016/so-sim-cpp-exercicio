@@ -66,6 +66,10 @@ namespace OS::Internal {
 			case 3:
 				syscall_print_integer();
 				break;
+			
+			case 6:
+				sleep_running_process(kernel_cpu->get_gpr(1));
+				break;
 
 			default:
 				terminal_println(kernel_cpu, Terminal::Kernel, "Unknown Syscall: ", service);

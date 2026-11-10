@@ -27,6 +27,8 @@ namespace OS::Internal {
         uint16_t pc = 0;
         PageTable page_table = {};
         bool is_idle = false;
+        uint16_t sleep_started_at_seconds = 0;
+        uint16_t sleep_duration_seconds = 0;
     };
 
     extern std::deque<Process> process_table;
@@ -47,6 +49,9 @@ namespace OS::Internal {
 
     void load_process(const std::string& binary_name);
     void print_process_table();
+    
+    void sleep_running_process(uint16_t seconds);
+    void wake_sleeping_processes();
 }
 
 #endif
