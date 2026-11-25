@@ -250,11 +250,7 @@ namespace OS::Internal {
 			running_process_index == -1 ||
 			process_table[running_process_index].is_idle
 		) {
-			terminal_println(
-				kernel_cpu,
-				Terminal::Kernel,
-				"No user process is running."
-			);
+			terminal_println(kernel_cpu, Terminal::Kernel, "No user process is running.");
 
 			return;
 		}
@@ -262,6 +258,7 @@ namespace OS::Internal {
 		finish_running_process("Process killed:");
 	}
 
+	
 	void kill_process(const uint16_t pid)
 	{
 		if (pid == 0) {
@@ -276,7 +273,7 @@ namespace OS::Internal {
 				continue;
 
 			if (process.state == ProcessState::Terminated) {
-				terminal_println(kernel_cpu, Terminal::Kernel, "Process already terminated: PID", pid);
+				terminal_println(kernel_cpu, Terminal::Kernel, "Process already terminated: PID ", pid);
 				return;
 			}
 
@@ -291,9 +288,9 @@ namespace OS::Internal {
 
 			release_process_frames(process);
 			return;
-
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process not found: PID ", pid);
 		}
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Process not found: PID ", pid);
 	}
 
 	void sleep_running_process(const uint16_t seconds)
