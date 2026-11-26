@@ -222,23 +222,31 @@ namespace OS::Internal {
 		schedule_next_process();
 	}
 
+	
 	void finish_running_process(const char* message)
 	{
 		if (running_process_it == process_table.end())
 			return;
 
-		Process& process = *running_process_it;
-
-		if (process.is_idle)
+		if (running_process_it->is_idle)
 			return;
+
+		const ProcessIterator finished_it = running_process_it;
+
+		Process& process = *finished_it;
 
 		process.state = ProcessState::Terminated;
 
 		terminal_println(kernel_cpu, Terminal::Kernel, message, " PID ", process.pid, " - ", process.binary_name);
 
+		schedule_next_process();
+
+		if (running_process_it == finished_it)
+			return;
+
 		release_process_frames(process);
 
-		schedule_next_process();
+		process_table.erase(finished_it);
 	}
 
 	void terminate_running_process ()
@@ -258,6 +266,7 @@ namespace OS::Internal {
 	}
 
 	
+	
 	void kill_process(const uint16_t pid)
 	{
 		if (pid == 0) {
@@ -272,13 +281,7 @@ namespace OS::Internal {
 			if (process.pid != pid)
 				continue;
 
-			if (process.state == ProcessState::Terminated) {
-				terminal_println(kernel_cpu, Terminal::Kernel, "Process already terminated: PID ", pid);
-
-				return;
-			}
-
-			if (it == running_process_it && process.state == ProcessState::Running) {
+			if (it == running_process_it) {
 				finish_running_process("Process killed:");
 
 				return;
@@ -289,6 +292,8 @@ namespace OS::Internal {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Process killed: PID ", process.pid, " - ", process.binary_name);
 
 			release_process_frames(process);
+
+			process_table.erase(it);
 
 			return;
 		}
