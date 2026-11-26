@@ -351,24 +351,30 @@ namespace OS::Internal {
 		finish_running_process("Process terminated by CPU exception:");
 	}
 
+	
+	void complete_process_load(const std::string& binary_name, const std::vector<uint16_t>& binary)
+	{
+		if (!is_valid_binary_size(binary.size())) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: invalid binary size.");
+
+			return;
+		}
+
+		ProcessIterator new_process_it = register_loaded_process(binary_name, binary);
+
+		terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", new_process_it->pid, " - ", binary_name);
+
+		if (running_process_it != process_table.end() && running_process_it->is_idle) {
+			schedule_next_process();
+		}
+	}
+
 	void load_process(const std::string& binary_name)
 	{
 		try {
 			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
 
-			if (!is_valid_binary_size(binary.size())) {
-				terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: invalid binary size.");
-
-				return;
-			}
-
-			ProcessIterator new_process_it = register_loaded_process(binary_name, binary);
-
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", new_process_it->pid, " - ", binary_name);
-
-			if (running_process_it != process_table.end() && running_process_it->is_idle) {
-				schedule_next_process();
-			}
+			complete_process_load(binary_name, binary);
 		}
 		catch (const std::exception& e) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());

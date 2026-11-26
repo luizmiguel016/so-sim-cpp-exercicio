@@ -50,6 +50,7 @@ namespace OS::Internal {
     void handle_cpu_exception();
 
     void load_process(const std::string& binary_name);
+    void complete_process_load(const std::string& binary_name, const std::vector<uint16_t>& binary);
     void print_process_table();
     
     void sleep_running_process(uint16_t seconds);
