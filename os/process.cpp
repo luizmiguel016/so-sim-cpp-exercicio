@@ -9,6 +9,7 @@
 #include "process.h"
 #include "memory.h"
 #include "scheduler.h"
+#include "disk.h"
 #include <cstddef>
 
 namespace OS::Internal {
@@ -372,9 +373,7 @@ namespace OS::Internal {
 	void load_process(const std::string& binary_name)
 	{
 		try {
-			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
-
-			complete_process_load(binary_name, binary);
+			request_program_load(binary_name);
 		}
 		catch (const std::exception& e) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());

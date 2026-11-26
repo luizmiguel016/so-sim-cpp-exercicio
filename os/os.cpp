@@ -8,6 +8,7 @@
 #include "scheduler.h"
 #include "terminal.h"
 #include "syscall.h"
+#include "disk.h"
 
 namespace OS::Internal {
 
@@ -51,7 +52,7 @@ namespace OS {
 				break;
 
 			case Disk:
-				terminal_println(Internal::kernel_cpu, Terminal::Kernel, "disk interrupt");
+				Internal::handle_disk_interrupt();
 				break;
 			
 			case Timer:
