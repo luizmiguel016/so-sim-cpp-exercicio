@@ -32,6 +32,8 @@ namespace OS {
 		try {
 			Internal::initialize_idle_process();
 
+			Internal::kernel_cpu->set_vmem_mode(VmemMode::Paging);
+
 			terminal_println(Internal::kernel_cpu, Terminal::Kernel, "Idle process started: PID 0 - idle.bin");
 		}
 		catch (const std::exception& e) {

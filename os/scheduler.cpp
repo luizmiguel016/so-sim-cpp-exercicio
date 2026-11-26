@@ -36,7 +36,6 @@ namespace OS::Internal {
             return;
 
         kernel_cpu->set_page_table(&process.page_table);
-        kernel_cpu->set_vmem_mode(VmemMode::Paging);
 
         for (uint8_t reg = 0; reg < Config::nregs; ++reg) {
             kernel_cpu->set_gpr(reg, process.gprs[reg]);
