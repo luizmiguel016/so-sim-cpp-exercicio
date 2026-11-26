@@ -1,4 +1,4 @@
-#include <cstddef>
+
 #include <cstdint>
 
 #include "os-internal.h"
@@ -10,10 +10,10 @@ namespace OS::Internal {
 
     void save_running_context()
     {
-        if (running_process_index == -1)
+        if (running_process_it == process_table.end())
             return;
 
-        Process& process = process_table[running_process_index];
+        Process& process = *running_process_it;
 
         if (process.state != ProcessState::Running)
             return;
@@ -27,10 +27,10 @@ namespace OS::Internal {
 
     void restore_running_context()
     {
-        if (running_process_index == -1)
+        if (running_process_it == process_table.end())
             return;
 
-        Process& process = process_table[running_process_index];
+        Process& process = *running_process_it;
 
         if (process.state != ProcessState::Running)
             return;
@@ -48,10 +48,10 @@ namespace OS::Internal {
 
         void pause_running_process()
         {
-            if (running_process_index == -1)
+            if (running_process_it == process_table.end())
                 return;
 
-            Process& process = process_table[running_process_index];
+            Process& process = *running_process_it;
 
             if (process.state != ProcessState::Running)
                 return;
@@ -61,42 +61,54 @@ namespace OS::Internal {
             process.state = ProcessState::Ready;
         }
 
-        int32_t find_next_ready_process(const int32_t previous_index)
+        ProcessIterator find_next_ready_process(ProcessIterator previous_it)
         {
-            const std::size_t process_count = process_table.size();
+            if (process_table.empty())
+                return process_table.end();
 
-            const std::size_t start_index = previous_index == -1 ? 0 : (static_cast<std::size_t>(previous_index) + 1) % process_count;
+            ProcessIterator it = previous_it;
 
-            for (std::size_t step = 0; step < process_count; ++step) {
-                const std::size_t index = (start_index + step) % process_count;
+            if (it == process_table.end()) {
+                it = process_table.begin();
+            }
+            else {
+                ++it;
 
-                const Process& process = process_table[index];
-
-                if (process.is_idle)
-                    continue;
-
-                if (process.state == ProcessState::Ready)
-                    return static_cast<int32_t>(index);
+                if (it == process_table.end())
+                    it = process_table.begin();
             }
 
-            return -1;
+            const ProcessIterator start_it = it;
+
+            do {
+                if (!it->is_idle && it->state == ProcessState::Ready) {
+                    return it;
+                }
+
+                ++it;
+
+                if (it == process_table.end())
+                    it = process_table.begin();
+
+            } while (it != start_it);
+
+            return process_table.end();
         }
 
-        int32_t select_next_process(const int32_t previous_index)
-        {
-            const int32_t next_index = find_next_ready_process(previous_index);
+        ProcessIterator select_next_process(ProcessIterator previous_it) {
+            ProcessIterator next_it = find_next_ready_process(previous_it);
 
-            if (next_index != -1)
-                return next_index;
+            if (next_it != process_table.end())
+                return next_it;
 
-            return idle_process_index;
+            return idle_process_it;
         }
 
-        void activate_process(const int32_t process_index)
+        void activate_process(ProcessIterator process_it)
         {
-            running_process_index = process_index;
+            running_process_it = process_it;
 
-            Process& process = process_table[process_index];
+            Process& process = *running_process_it;
 
             process.state = ProcessState::Running;
 
@@ -107,20 +119,21 @@ namespace OS::Internal {
 
     void schedule_next_process()
     {
-        if (idle_process_index == -1 || process_table.empty()) {
+        if (idle_process_it == process_table.end() || process_table.empty()) {
             terminal_println(kernel_cpu, Terminal::Kernel, "Fatal error: no idle process available.");
 
             kernel_cpu->turn_off();
+
             return;
         }
 
-        const int32_t previous_index = running_process_index;
+        const ProcessIterator previous_it = running_process_it;
 
         pause_running_process();
 
-        const int32_t next_index = select_next_process(previous_index);
+        const ProcessIterator next_it = select_next_process(previous_it);
 
-        activate_process(next_index);
+        activate_process(next_it);
     }
 
 } // namespace OS::Internal

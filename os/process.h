@@ -3,7 +3,7 @@
 
 #include <array>
 #include <cstdint>
-#include <deque>
+#include <list>
 #include <string>
 #include <vector>
 
@@ -31,13 +31,15 @@ namespace OS::Internal {
         uint16_t sleep_duration_seconds = 0;
     };
 
-    extern std::deque<Process> process_table;
+    using ProcessIterator = std::list<Process>::iterator;
+
+    extern std::list<Process> process_table;
 
     extern uint16_t next_pid;
-    extern int32_t running_process_index;
+    extern ProcessIterator running_process_it;
 
     extern std::vector<uint16_t> idle_binary;
-    extern int32_t idle_process_index;
+    extern ProcessIterator idle_process_it;
 
     void initialize_process_manager();
     void initialize_idle_process();

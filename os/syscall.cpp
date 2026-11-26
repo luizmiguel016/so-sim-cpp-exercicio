@@ -42,7 +42,7 @@ namespace OS::Internal {
 
 	void dispatch_syscall()
 	{
-		if (running_process_index == -1) {
+		if (running_process_it == process_table.end()) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Syscall ignored: no process is running.");
 
 			return;

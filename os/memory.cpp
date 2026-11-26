@@ -71,16 +71,18 @@ namespace OS::Internal {
 
     bool read_process_word(const uint16_t vaddr, uint16_t& value)
     {
-        if (running_process_index == -1)
+        if (running_process_it == process_table.end())
             return false;
 
-        const Process& process = process_table[running_process_index];
+        const Process& process = *running_process_it;
+
         uint16_t paddr = 0;
 
         if (!translate_readable_address(process, vaddr, paddr))
             return false;
 
         value = kernel_cpu->pmem_read(paddr);
+
         return true;
     }
 }

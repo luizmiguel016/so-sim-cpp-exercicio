@@ -13,13 +13,15 @@
 
 namespace OS::Internal {
 
-    std::deque<Process> process_table;
+    std::list<Process> process_table;
 
-    uint16_t next_pid = 1;
-    int32_t running_process_index = -1;
+	uint16_t next_pid = 1;
 
-    std::vector<uint16_t> idle_binary;
-    int32_t idle_process_index = -1;
+	ProcessIterator running_process_it = process_table.end();
+
+	std::vector<uint16_t> idle_binary;
+
+	ProcessIterator idle_process_it = process_table.end();
 
 	void start_process(Process& process, const std::vector<uint16_t>& binary);
 
@@ -59,7 +61,7 @@ namespace OS::Internal {
 			copy_binary_page(binary, page, frame);
 		}
 
-		int32_t register_loaded_process(const std::string& binary_name, const std::vector<uint16_t>& binary)
+		ProcessIterator register_loaded_process(const std::string& binary_name, const std::vector<uint16_t>& binary)
 		{
 			Process process;
 
@@ -67,21 +69,19 @@ namespace OS::Internal {
 			process.binary_name = binary_name;
 			process.memory_size_words = binary.size();
 
-			process_table.push_back(std::move(process));
-
-			const int32_t new_process_index = static_cast<int32_t>(process_table.size() - 1);
+			ProcessIterator new_process_it = process_table.insert(process_table.end(), std::move(process));
 
 			try {
-				start_process(process_table[new_process_index], binary);
+				start_process(*new_process_it, binary);
 			}
 			catch (...) {
-				process_table.pop_back();
+				process_table.erase(new_process_it);
 				throw;
 			}
 
 			++next_pid;
 
-			return new_process_index;
+			return new_process_it;
 		}
 
 		const char* cpu_exception_reason(const CpuException::Type type)
@@ -152,7 +152,7 @@ namespace OS::Internal {
 		return "Unknown";
 	}
 
-    void initialize_process_manager ()
+    void initialize_process_manager()
 	{
 		process_table.clear();
 		idle_binary.clear();
@@ -160,8 +160,9 @@ namespace OS::Internal {
 		initialize_physical_memory();
 
 		next_pid = 1;
-		running_process_index = -1;
-		idle_process_index = -1;
+
+		running_process_it = process_table.end();
+		idle_process_it = process_table.end();
 	}
 	
 	void start_process(Process& process,const std::vector<uint16_t>& binary)
@@ -203,29 +204,30 @@ namespace OS::Internal {
 		idle_process.memory_size_words = idle_binary.size();
 		idle_process.is_idle = true;
 
-		process_table.push_back(std::move(idle_process));
-
-		idle_process_index = static_cast<int32_t>(process_table.size() - 1);
+		idle_process_it = process_table.insert(process_table.end(), std::move(idle_process));
 
 		try {
-			start_process(process_table[idle_process_index], idle_binary);
+			start_process(*idle_process_it, idle_binary);
 
-			running_process_index = idle_process_index;
-		} catch (...) {
-			process_table.pop_back();
-			idle_process_index = -1;
+			running_process_it = idle_process_it;
+		}
+		catch (...) {
+			process_table.erase(idle_process_it);
+
+			idle_process_it = process_table.end();
+
 			throw;
 		}
 
 		schedule_next_process();
 	}
 
-	void finish_running_process (const char* message)
+	void finish_running_process(const char* message)
 	{
-		if (running_process_index == -1)
+		if (running_process_it == process_table.end())
 			return;
 
-		Process& process = process_table[running_process_index];
+		Process& process = *running_process_it;
 
 		if (process.is_idle)
 			return;
@@ -244,12 +246,9 @@ namespace OS::Internal {
 		finish_running_process("Process terminated:");
 	}
 
-	void kill_running_process ()
+	void kill_running_process()
 	{
-		if (
-			running_process_index == -1 ||
-			process_table[running_process_index].is_idle
-		) {
+		if (running_process_it == process_table.end() || running_process_it->is_idle) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "No user process is running.");
 
 			return;
@@ -263,22 +262,25 @@ namespace OS::Internal {
 	{
 		if (pid == 0) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot kill idle process.");
+
 			return;
 		}
 
-		for (std::size_t index = 0; index < process_table.size(); ++index) {
-			Process& process = process_table[index];
+		for (auto it = process_table.begin(); it != process_table.end(); ++it) {
+			Process& process = *it;
 
 			if (process.pid != pid)
 				continue;
 
 			if (process.state == ProcessState::Terminated) {
 				terminal_println(kernel_cpu, Terminal::Kernel, "Process already terminated: PID ", pid);
+
 				return;
 			}
 
-			if (static_cast<int32_t>(index) == running_process_index && process.state == ProcessState::Running) {
+			if (it == running_process_it && process.state == ProcessState::Running) {
 				finish_running_process("Process killed:");
+
 				return;
 			}
 
@@ -287,6 +289,7 @@ namespace OS::Internal {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Process killed: PID ", process.pid, " - ", process.binary_name);
 
 			release_process_frames(process);
+
 			return;
 		}
 
@@ -295,10 +298,10 @@ namespace OS::Internal {
 
 	void sleep_running_process(const uint16_t seconds)
 	{
-		if (seconds == 0 || running_process_index == -1)
+		if (seconds == 0 || running_process_it == process_table.end())
 			return;
 
-		Process& process = process_table[running_process_index];
+		Process& process = *running_process_it;
 
 		if (process.is_idle || process.state != ProcessState::Running)
 			return;
@@ -308,6 +311,7 @@ namespace OS::Internal {
 		process.sleep_started_at_seconds = kernel_cpu->read_io(IO_Port::TimerGetTimeSeconds);
 
 		process.sleep_duration_seconds = seconds;
+
 		process.state = ProcessState::Blocked;
 
 		schedule_next_process();
@@ -321,14 +325,14 @@ namespace OS::Internal {
 
 		const char* reason = cpu_exception_reason(exception.type);
 
-		if (running_process_index == -1) {
+		if (running_process_it == process_table.end()) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Fatal CPU exception: no running process.");
 
 			kernel_cpu->turn_off();
 			return;
 		}
 
-		const Process& process = process_table[running_process_index];
+		const Process& process = *running_process_it;
 
 		terminal_println(kernel_cpu, Terminal::Kernel, "CPU exception: ", reason, " | PID ", process.pid, " | PC ", fault_pc, " | Virtual address ", exception.vaddr);
 
@@ -342,7 +346,7 @@ namespace OS::Internal {
 		finish_running_process("Process terminated by CPU exception:");
 	}
 
-	void load_process (const std::string& binary_name)
+	void load_process(const std::string& binary_name)
 	{
 		try {
 			const std::vector<uint16_t> binary = Lib::load_from_disk_to_16bit_buffer(binary_name);
@@ -352,16 +356,16 @@ namespace OS::Internal {
 
 				return;
 			}
-			
-			const int32_t new_process_index = register_loaded_process(binary_name, binary);
 
-			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", process_table[new_process_index].pid," - ", binary_name);
+			ProcessIterator new_process_it = register_loaded_process(binary_name, binary);
 
-			if (running_process_index != -1 && process_table[running_process_index].is_idle) {
+			terminal_println(kernel_cpu, Terminal::Kernel, "Process loaded: PID ", new_process_it->pid, " - ", binary_name);
+
+			if (running_process_it != process_table.end() && running_process_it->is_idle) {
 				schedule_next_process();
 			}
-
-		} catch (const std::exception& e) {
+		}
+		catch (const std::exception& e) {
 			terminal_println(kernel_cpu, Terminal::Kernel, "Cannot load program: ", e.what());
 		}
 	}
