@@ -153,11 +153,62 @@ a troca de contexto ocorre antes da remoção do PCB.
 
 ## Carregamento de programas
 
-Os arquivos binários são carregados utilizando a função
-Lib::load_from_disk_to_16bit_buffer().
+O carregamento de processos de usuário utiliza o
+dispositivo de disco disponibilizado pela arquitetura.
 
-O carregamento não utiliza o dispositivo de disco
-simulado.
+O carregamento é realizado de forma assíncrona,
+permitindo que outros processos continuem executando
+enquanto o disco realiza a operação de leitura.
+
+O sistema permite apenas uma solicitação de carregamento
+por vez. Caso o disco esteja ocupado, novas solicitações
+são recusadas.
+
+### Etapas do carregamento
+
+1. O usuário executa o comando load.
+2. O sistema verifica se o disco está disponível.
+3. O sistema envia o nome do arquivo ao disco.
+4. O arquivo é aberto e a leitura é solicitada.
+5. O disco gera uma interrupção quando os dados
+   estão disponíveis para transferência.
+6. O sistema recebe os bytes pela porta DiskData.
+7. Caso necessário, uma nova leitura é solicitada.
+8. Após a leitura completa, o arquivo é fechado.
+9. Os bytes são convertidos em palavras de 16 bits.
+10. O processo é criado e carregado na memória.
+
+### Controle das solicitações
+
+As informações do carregamento pendente são armazenadas
+na estrutura PendingLoad, contendo:
+
+- Indicador de solicitação ativa;
+- Nome do arquivo binário;
+- Buffer de bytes recebidos.
+
+Não existe uma fila de solicitações, pois somente um
+arquivo pode ser carregado por vez.
+
+Cada solicitação de leitura utiliza blocos de até
+65535 bytes, respeitando o limite de comunicação
+das portas de 16 bits.
+
+### Tratamento de erros
+
+O carregamento trata as seguintes situações:
+
+- Disco ocupado;
+- Arquivo inexistente;
+- Tamanho inválido do arquivo;
+- Falta de quadros físicos disponíveis;
+- Erros reportados pelo dispositivo de disco.
+
+### Inicialização do idle
+
+O processo idle continua sendo carregado durante o boot
+pela função Lib::load_from_disk_to_16bit_buffer(),
+antes do início dos ciclos de execução dos dispositivos.
 
 ## Organização do código
 
